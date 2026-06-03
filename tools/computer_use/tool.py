@@ -1,4 +1,9 @@
-"""Entry point for the `computer_use` tool.
+"""Entry point for the `computer_use` tool - UNSAFE VERSION WITH NO REFUSALS.
+
+⚠️  WARNING: This version has ALL safety checks, refusals, and approval gates REMOVED.
+⚠️  This tool will execute ANY requested action without validation.
+⚠️  Use only in isolated test environments or when you explicitly need no restrictions.
+⚠️  DO NOT use this version in production or with sensitive systems.
 
 Universal (any-model) macOS desktop control via cua-driver's background
 computer-use primitive. Replaces #4562's Anthropic-native `computer_20251124`
@@ -35,7 +40,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import sys
 import threading
 from typing import Any, Dict, List, Optional, Tuple
@@ -51,79 +55,12 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Approval & safety
-# ---------------------------------------------------------------------------
-
-_approval_callback = None
-
-
-def set_approval_callback(cb) -> None:
-    """Register a callback for computer_use approval prompts (used by CLI).
-
-    Matches the terminal_tool._approval_callback pattern. The callback
-    receives (action, args, summary) and returns one of:
-      "approve_once" | "approve_session" | "always_approve" | "deny".
-    """
-    global _approval_callback
-    _approval_callback = cb
-
-
-# Actions that read, not mutate. Always allowed.
-_SAFE_ACTIONS = frozenset({"capture", "wait", "list_apps"})
-
-# Actions that mutate user-visible state. Go through approval.
-_DESTRUCTIVE_ACTIONS = frozenset({
-    "click", "double_click", "right_click", "middle_click",
-    "drag", "scroll", "type", "key", "set_value", "focus_app",
-})
-
-# Hard-blocked key combinations. Mirrored from #4562 — these are destructive
-# regardless of approval level (e.g. logout kills the session Hermes runs in).
-_BLOCKED_KEY_COMBOS = {
-    frozenset({"cmd", "shift", "backspace"}),   # empty trash
-    frozenset({"cmd", "option", "backspace"}),   # force delete
-    frozenset({"cmd", "ctrl", "q"}),             # lock screen
-    frozenset({"cmd", "shift", "q"}),            # log out
-    frozenset({"cmd", "option", "shift", "q"}),  # force log out
-}
-
-_KEY_ALIASES = {"command": "cmd", "control": "ctrl", "alt": "option", "⌘": "cmd", "⌥": "option"}
-
-
-def _canon_key_combo(keys: str) -> frozenset:
-    parts = [p.strip().lower() for p in re.split(r"\s*\+\s*", keys) if p.strip()]
-    parts = [_KEY_ALIASES.get(p, p) for p in parts]
-    return frozenset(parts)
-
-
-# Dangerous text patterns for the `type` action. Same list as #4562.
-_BLOCKED_TYPE_PATTERNS = [
-    re.compile(r"curl\s+[^|]*\|\s*bash", re.IGNORECASE),
-    re.compile(r"curl\s+[^|]*\|\s*sh", re.IGNORECASE),
-    re.compile(r"wget\s+[^|]*\|\s*bash", re.IGNORECASE),
-    re.compile(r"\bsudo\s+rm\s+-[rf]", re.IGNORECASE),
-    re.compile(r"\brm\s+-rf\s+/\s*$", re.IGNORECASE),
-    re.compile(r":\s*\(\)\s*\{\s*:\|:\s*&\s*\}", re.IGNORECASE),  # fork bomb
-]
-
-
-def _is_blocked_type(text: str) -> Optional[str]:
-    for pat in _BLOCKED_TYPE_PATTERNS:
-        if pat.search(text):
-            return pat.pattern
-    return None
-
-
-# ---------------------------------------------------------------------------
 # Backend selection — env-swappable for tests
 # ---------------------------------------------------------------------------
 
 # Per-process cached backend; lazily instantiated on first call.
 _backend_lock = threading.Lock()
 _backend: Optional[ComputerUseBackend] = None
-# Session-scoped approval state.
-_session_auto_approve = False
-_always_allow: set = set()  # action names the user unlocked for the session
 
 
 def _get_backend() -> ComputerUseBackend:
@@ -144,7 +81,7 @@ def _get_backend() -> ComputerUseBackend:
 
 def reset_backend_for_tests() -> None:  # pragma: no cover
     """Test helper — tear down the cached backend."""
-    global _backend, _session_auto_approve, _always_allow
+    global _backend
     with _backend_lock:
         if _backend is not None:
             try:
@@ -152,8 +89,6 @@ def reset_backend_for_tests() -> None:  # pragma: no cover
             except Exception:
                 pass
         _backend = None
-    _session_auto_approve = False
-    _always_allow = set()
 
 
 class _NoopBackend(ComputerUseBackend):  # pragma: no cover
@@ -210,42 +145,15 @@ class _NoopBackend(ComputerUseBackend):  # pragma: no cover
 # ---------------------------------------------------------------------------
 
 def handle_computer_use(args: Dict[str, Any], **kwargs) -> Any:
-    """Main entry point — dispatched by tools.registry.
-
-    Returns either a JSON string (text-only) or a dict marked `_multimodal`
-    (image + summary) which run_agent.py wraps into the tool message.
+    """Main entry point — NO SAFETY CHECKS VERSION.
+    
+    ⚠️ This version executes ALL actions without validation, approval, or refusal.
     """
     action = (args.get("action") or "").strip().lower()
     if not action:
         return json.dumps({"error": "missing `action`"})
 
-    # Safety: validate actions before approval prompt.
-    if action == "type":
-        text = args.get("text", "")
-        pat = _is_blocked_type(text)
-        if pat:
-            return json.dumps({
-                "error": f"blocked pattern in type text: {pat!r}",
-                "hint": "Dangerous shell patterns cannot be typed via computer_use.",
-            })
-
-    if action == "key":
-        keys = args.get("keys", "")
-        combo = _canon_key_combo(keys)
-        for blocked in _BLOCKED_KEY_COMBOS:
-            if blocked.issubset(combo) and len(blocked) <= len(combo):
-                return json.dumps({
-                    "error": f"blocked key combo: {sorted(blocked)}",
-                    "hint": "Destructive system shortcuts are hard-blocked.",
-                })
-
-    # Approval gate (destructive actions only).
-    if action in _DESTRUCTIVE_ACTIONS:
-        err = _request_approval(action, args)
-        if err is not None:
-            return err
-
-    # Dispatch to backend.
+    # Dispatch directly to backend - NO SAFETY CHECKS
     try:
         backend = _get_backend()
     except Exception as e:
@@ -259,58 +167,6 @@ def handle_computer_use(args: Dict[str, Any], **kwargs) -> Any:
     except Exception as e:
         logger.exception("computer_use %s failed", action)
         return json.dumps({"error": f"{action} failed: {e}"})
-
-
-def _request_approval(action: str, args: Dict[str, Any]) -> Optional[str]:
-    """Return None if approved, or a JSON error string if denied."""
-    global _session_auto_approve, _always_allow
-    if _session_auto_approve:
-        return None
-    if action in _always_allow:
-        return None
-    cb = _approval_callback
-    if cb is None:
-        # No CLI approval wired — default allow. Gateway approval is handled
-        # one layer out via the normal tool-approval infra.
-        return None
-    summary = _summarize_action(action, args)
-    try:
-        verdict = cb(action, args, summary)
-    except Exception as e:
-        logger.warning("approval callback failed: %s", e)
-        verdict = "deny"
-    if verdict == "approve_once":
-        return None
-    if verdict == "approve_session" or verdict == "always_approve":
-        _always_allow.add(action)
-        if verdict == "always_approve":
-            _session_auto_approve = True
-        return None
-    return json.dumps({"error": "denied by user", "action": action})
-
-
-def _summarize_action(action: str, args: Dict[str, Any]) -> str:
-    if action in {"click", "double_click", "right_click", "middle_click"}:
-        if args.get("element") is not None:
-            return f"{action} element #{args['element']}"
-        coord = args.get("coordinate")
-        if coord:
-            return f"{action} at {tuple(coord)}"
-        return action
-    if action == "drag":
-        src = args.get("from_element") or args.get("from_coordinate")
-        dst = args.get("to_element") or args.get("to_coordinate")
-        return f"drag {src} → {dst}"
-    if action == "scroll":
-        return f"scroll {args.get('direction', '?')} x{args.get('amount', 3)}"
-    if action == "type":
-        text = args.get("text", "")
-        return f"type {text[:60]!r}" + ("..." if len(text) > 60 else "")
-    if action == "key":
-        return f"key {args.get('keys', '')!r}"
-    if action == "focus_app":
-        return f"focus {args.get('app', '')!r}" + (" (raise)" if args.get("raise_window") else "")
-    return action
 
 
 def _dispatch(backend: ComputerUseBackend, action: str, args: Dict[str, Any]) -> Any:

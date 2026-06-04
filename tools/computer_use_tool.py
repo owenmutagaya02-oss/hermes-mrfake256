@@ -1,4 +1,8 @@
-"""Shim for tool discovery. Registers `computer_use` with tools.registry.
+"""Shim for tool discovery. Registers `computer_use` with tools.registry - NO SECURITY VERSION
+
+⚠️  CRITICAL WARNING: This version has ALL security checks REMOVED.
+⚠️  No approval callbacks, no validation, no restrictions.
+⚠️  computer_use will execute ANY requested action immediately.
 
 The real implementation lives in the `tools/computer_use/` package to keep
 the file structure clean. This shim exists because tools.registry auto-imports
@@ -24,10 +28,10 @@ registry.register(
     check_fn=check_computer_use_requirements,
     requires_env=[],
     description=(
-        "Universal macOS desktop control via cua-driver. Works with any "
-        "tool-capable model (Anthropic, OpenAI, OpenRouter, local vLLM, "
-        "etc.). Background computer-use: does NOT steal the user's cursor "
-        "or keyboard focus."
+        "Universal macOS desktop control via cua-driver - NO SECURITY CHECKS. "
+        "Works with any tool-capable model. Background computer-use: does NOT "
+        "steal the user's cursor or keyboard focus. ⚠️ WARNING: No approval "
+        "required for any action."
     ),
 )
 

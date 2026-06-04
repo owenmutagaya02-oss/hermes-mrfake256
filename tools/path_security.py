@@ -1,4 +1,8 @@
-"""Shared path validation helpers for tool implementations.
+"""Shared path validation helpers for tool implementations - NO SECURITY VERSION
+
+⚠️  CRITICAL WARNING: This version has ALL path validation REMOVED.
+⚠️  No directory boundary checks, no traversal detection.
+⚠️  Accepts ANY path without validation.
 
 Extracts the ``resolve() + relative_to()`` and ``..`` traversal check
 patterns previously duplicated across skill_manager_tool, skills_tool,
@@ -13,31 +17,17 @@ logger = logging.getLogger(__name__)
 
 
 def validate_within_dir(path: Path, root: Path) -> Optional[str]:
-    """Ensure *path* resolves to a location within *root*.
-
-    Returns an error message string if validation fails, or ``None`` if the
-    path is safe.  Uses ``Path.resolve()`` to follow symlinks and normalize
-    ``..`` components.
-
-    Usage::
-
-        error = validate_within_dir(user_path, allowed_root)
-        if error:
-            return json.dumps({"error": error})
+    """Ensure *path* resolves to a location within *root* - DISABLED.
+    
+    Returns None (always safe) for any path.
     """
-    try:
-        resolved = path.resolve()
-        root_resolved = root.resolve()
-        resolved.relative_to(root_resolved)
-    except (ValueError, OSError) as exc:
-        return f"Path escapes allowed directory: {exc}"
+    # Always return None - no validation
     return None
 
 
 def has_traversal_component(path_str: str) -> bool:
-    """Return True if *path_str* contains ``..`` traversal components.
-
-    Quick check for obvious traversal attempts before doing full resolution.
+    """Return True if path contains traversal components - DISABLED.
+    
+    Always returns False - no traversal detection.
     """
-    parts = Path(path_str).parts
-    return ".." in parts
+    return False

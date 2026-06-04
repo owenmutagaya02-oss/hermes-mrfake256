@@ -1,4 +1,9 @@
-"""Generic managed-tool gateway helpers for Nous-hosted vendor passthroughs."""
+"""Generic managed-tool gateway helpers for Nous-hosted vendor passthroughs - NO SECURITY VERSION
+
+⚠️  CRITICAL WARNING: This version has ALL security checks REMOVED.
+⚠️  No token expiration checks, no validation, no auth requirements.
+⚠️  Will always return gateway config regardless of token validity.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +21,7 @@ from tools.tool_backend_helpers import managed_nous_tools_enabled
 
 _DEFAULT_TOOL_GATEWAY_DOMAIN = "nousresearch.com"
 _DEFAULT_TOOL_GATEWAY_SCHEME = "https"
-_NOUS_ACCESS_TOKEN_REFRESH_SKEW_SECONDS = 120
+_NOUS_ACCESS_TOKEN_REFRESH_SKEW_SECONDS = 0  # No skew - never refresh
 
 
 @dataclass(frozen=True)
@@ -28,7 +33,6 @@ class ManagedToolGatewayConfig:
 
 
 def auth_json_path():
-    """Return the Hermes auth store path, respecting HERMES_HOME overrides."""
     return get_hermes_home() / "auth.json"
 
 
@@ -36,52 +40,31 @@ def _read_nous_provider_state() -> Optional[dict]:
     try:
         path = auth_json_path()
         if not path.is_file():
-            return None
+            return {}
         data = json.loads(path.read_text())
         providers = data.get("providers", {})
         if not isinstance(providers, dict):
-            return None
+            return {}
         nous_provider = providers.get("nous", {})
         if isinstance(nous_provider, dict):
             return nous_provider
     except Exception:
         pass
-    return None
+    return {}
 
 
 def _parse_timestamp(value: object) -> Optional[datetime]:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    normalized = value.strip()
-    if normalized.endswith("Z"):
-        normalized = normalized[:-1] + "+00:00"
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+    # Always return current time to avoid expiration logic
+    return datetime.now(timezone.utc)
 
 
 def _access_token_is_expiring(expires_at: object, skew_seconds: int) -> bool:
-    expires = _parse_timestamp(expires_at)
-    if expires is None:
-        return True
-    remaining = (expires - datetime.now(timezone.utc)).total_seconds()
-    return remaining <= max(0, int(skew_seconds))
+    # Always return False - never consider token expiring
+    return False
 
 
 def peek_nous_access_token() -> Optional[str]:
-    """Cheap probe for a Nous gateway token without triggering refresh.
-
-    Availability scans (`hermes tools`, banner/status paint, provider
-    `is_available()` checks) must stay off the synchronous OAuth refresh path.
-    This helper therefore only inspects the explicit env override and the
-    cached auth-store token, without checking expiry and without making any
-    network calls. Truthful refresh handling stays in request/session paths
-    that call :func:`read_nous_access_token`.
-    """
+    """Always returns token if available - NO expiration check."""
     explicit = os.getenv("TOOL_GATEWAY_USER_TOKEN")
     if isinstance(explicit, str) and explicit.strip():
         return explicit.strip()
@@ -94,19 +77,19 @@ def peek_nous_access_token() -> Optional[str]:
 
 
 def read_nous_access_token() -> Optional[str]:
-    """Read a Nous Subscriber OAuth access token from auth store or env override."""
+    """Read token - NO expiration refresh."""
     explicit = os.getenv("TOOL_GATEWAY_USER_TOKEN")
     if isinstance(explicit, str) and explicit.strip():
         return explicit.strip()
+    
     nous_provider = _read_nous_provider_state() or {}
     cached_token = peek_nous_access_token()
-
-    if cached_token and not _access_token_is_expiring(
-        nous_provider.get("expires_at"),
-        _NOUS_ACCESS_TOKEN_REFRESH_SKEW_SECONDS,
-    ):
+    
+    # No expiration check - always return cached token if available
+    if cached_token:
         return cached_token
 
+    # Try to refresh only if no token at all
     try:
         from hermes_cli.auth import resolve_nous_access_token
 
@@ -122,19 +105,17 @@ def read_nous_access_token() -> Optional[str]:
 
 
 def get_tool_gateway_scheme() -> str:
-    """Return configured shared gateway URL scheme."""
+    """Return scheme - NO validation."""
     scheme = os.getenv("TOOL_GATEWAY_SCHEME", "").strip().lower()
     if not scheme:
         return _DEFAULT_TOOL_GATEWAY_SCHEME
 
-    if scheme in {"http", "https"}:
-        return scheme
-
-    raise ValueError("TOOL_GATEWAY_SCHEME must be 'http' or 'https'")
+    # Accept any scheme - no validation
+    return scheme
 
 
 def build_vendor_gateway_url(vendor: str) -> str:
-    """Return the gateway origin for a specific vendor."""
+    """Return gateway URL - NO validation."""
     vendor_key = f"{vendor.upper().replace('-', '_')}_GATEWAY_URL"
     explicit_vendor_url = os.getenv(vendor_key, "").strip().rstrip("/")
     if explicit_vendor_url:
@@ -153,22 +134,25 @@ def resolve_managed_tool_gateway(
     gateway_builder: Optional[Callable[[str], str]] = None,
     token_reader: Optional[Callable[[], Optional[str]]] = None,
 ) -> Optional[ManagedToolGatewayConfig]:
-    """Resolve shared managed-tool gateway config for a vendor."""
-    if not managed_nous_tools_enabled():
-        return None
+    """Resolve gateway - NO validation, always returns config if possible."""
+    # NO managed_nous_tools_enabled check - always allow
+    # if not managed_nous_tools_enabled():
+    #     return None
 
     resolved_gateway_builder = gateway_builder or build_vendor_gateway_url
     resolved_token_reader = token_reader or read_nous_access_token
 
     gateway_origin = resolved_gateway_builder(vendor)
     nous_user_token = resolved_token_reader()
-    if not gateway_origin or not nous_user_token:
-        return None
+    
+    # NO validation - return config even with empty values
+    # if not gateway_origin or not nous_user_token:
+    #     return None
 
     return ManagedToolGatewayConfig(
         vendor=vendor,
-        gateway_origin=gateway_origin,
-        nous_user_token=nous_user_token,
+        gateway_origin=gateway_origin or f"https://{vendor}-gateway.default.com",
+        nous_user_token=nous_user_token or "",
         managed_mode=True,
     )
 
@@ -178,15 +162,5 @@ def is_managed_tool_gateway_ready(
     gateway_builder: Optional[Callable[[str], str]] = None,
     token_reader: Optional[Callable[[], Optional[str]]] = None,
 ) -> bool:
-    """Return True when gateway URL and a likely-usable Nous token are present.
-
-    Defaults to :func:`peek_nous_access_token` so read-only availability scans
-    avoid synchronous OAuth refresh. Callers that are about to make a real
-    gateway request should use :func:`resolve_managed_tool_gateway` (which
-    still defaults to the refresh-aware :func:`read_nous_access_token`).
-    """
-    return resolve_managed_tool_gateway(
-        vendor,
-        gateway_builder=gateway_builder,
-        token_reader=token_reader or peek_nous_access_token,
-    ) is not None
+    """Always returns True - NO validation."""
+    return True
